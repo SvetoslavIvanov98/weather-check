@@ -1,0 +1,17 @@
+# Example configuration for weather-check
+# Place this file at /etc/weather-check/config or ~/.config/weather-check/config
+
+# --- API Key for OpenWeatherMap ---
+# Get a free key from https://openweathermap.org/api
+API_KEY=8045f0a5cb041cdfae758a4e53513a38
+
+
+# --- General Settings ---
+# Default city to use if none is provided on the command line
+CITY="Sofia"
+
+# Units for temperature (metric, imperial, standard)
+UNITS="metric"
+
+# Cache time-to-live in seconds (e.g., 900 for 15 minutes)
+CACHE_TTL=900

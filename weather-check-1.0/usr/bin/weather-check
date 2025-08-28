@@ -1,0 +1,178 @@
+#!/bin/bash
+# Weather-check – clean version with auto-location + tables
+# Requires: curl, jq
+
+# Colors (use $'...' so variables contain real ESC bytes)
+RED=$'\033[0;31m'
+GREEN=$'\033[0;32m'
+YELLOW=$'\033[1;33m'
+BLUE=$'\033[0;34m'
+CYAN=$'\033[0;36m'
+MAGENTA=$'\033[0;35m'
+WHITE=$'\033[1;37m'
+BOLD=$'\033[1m'
+NC=$'\033[0m'
+
+CLEAR_TERM=1
+CITY=""
+
+# Spinner
+start_spinner() {
+    local msg="$1"
+    local spin='-\|/'
+    local i=0
+    tput civis
+    while :; do
+        i=$(( (i+1) %4 ))
+        printf "\r[%c] %s" "${spin:$i:1}" "$msg"
+        sleep 0.1
+    done &
+    SPINNER_PID=$!
+    disown
+}
+stop_spinner() {
+    kill "$SPINNER_PID" &>/dev/null
+    wait "$SPINNER_PID" 2>/dev/null
+    printf "\r%s\r" "                    "
+    tput cnorm
+}
+
+# Weather icons mapping
+weather_icon() {
+    case "$1" in
+        clearsky*) echo "☀️" ;;
+        fair*) echo "🌤️" ;;
+        partlycloudy*) echo "⛅" ;;
+        cloudy*) echo "☁️" ;;
+        lightrainshowers*|rainshowers*|heavyrainshowers*) echo "🌦️" ;;
+        lightrain*|rain*|heavyrain*) echo "🌧️" ;;
+        snow*|lightsnow*|heavysnow*) echo "❄️" ;;
+        fog*) echo "🌫️" ;;
+        thunder*|thunderstorm*) echo "⛈️" ;;
+        *) echo "🔆" ;;
+    esac
+}
+
+# Detect location
+detect_city() {
+    CITY=$(curl -s ipinfo.io/city)
+    [[ -z "$CITY" ]] && CITY="Sofia"
+}
+
+# Get coords
+get_coords() {
+    city="$1"
+    loc=$(curl -s "https://nominatim.openstreetmap.org/search?city=${city}&format=json&limit=1" \
+        | jq -r '.[0] | "\(.lat) \(.lon)"')
+    [[ -z "$loc" ]] && echo "42.6977 23.3219" || echo "$loc"
+}
+
+# Fetch weather
+fetch_weather() {
+    lat="$1"
+    lon="$2"
+    curl -s "https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=${lat}&lon=${lon}" \
+        -H "User-Agent: weather-check"
+}
+
+# Show weather
+show_weather() {
+    [[ "$CLEAR_TERM" -eq 1 ]] && clear
+    [[ -z "$CITY" ]] && detect_city
+    read -r lat lon <<< "$(get_coords "$CITY")"
+
+    start_spinner "Fetching weather..."
+    weather_json=$(fetch_weather "$lat" "$lon")
+    stop_spinner
+
+    # Current
+    current=$(echo "$weather_json" | jq '.properties.timeseries[0].data.instant.details')
+    temp=$(echo "$current" | jq -r '.air_temperature')
+    wind=$(echo "$current" | jq -r '.wind_speed')
+    humidity=$(echo "$current" | jq -r '.relative_humidity')
+    pressure=$(echo "$current" | jq -r '.air_pressure_at_sea_level')
+    code=$(echo "$weather_json" | jq -r '.properties.timeseries[0].data.next_1_hours.summary.symbol_code // empty')
+    icon=$(weather_icon "$code")
+
+    # color helpers
+    color_temp() {
+        # float-aware comparisons using awk
+        local v=$1
+        if awk "BEGIN{exit !($v >= 25)}"; then
+            printf '%s' "$RED"
+        elif awk "BEGIN{exit !($v >= 15)}"; then
+            printf '%s' "$YELLOW"
+        elif awk "BEGIN{exit !($v >= 5)}"; then
+            printf '%s' "$CYAN"
+        else
+            printf '%s' "$BLUE"
+        fi
+    }
+    weather_color() {
+        local code="$1"
+        if [[ -z "$code" ]]; then
+            printf '%s' "$GREEN"
+            return
+        fi
+        case "$code" in
+            *rain*|*showers*) printf '%s' "$BLUE" ;;
+            *snow*) printf '%s' "$CYAN" ;;
+            *clearsky*) printf '%s' "$YELLOW" ;;
+            *cloudy*) printf '%s' "$WHITE" ;;
+            *) printf '%s' "$GREEN" ;;
+        esac
+    }
+
+    temp_color=$(color_temp "$temp")
+    icon_color=$(weather_color "$code")
+
+    echo -e "${BOLD}${CYAN}Weather for ${YELLOW}${CITY}${NC}"
+    echo -e "${icon_color}${icon}${NC} ${temp_color}${temp}°C${NC}   Wind: ${BLUE}${wind}m/s${NC}   Humidity: ${MAGENTA}${humidity}%${NC}   Pressure: ${WHITE}${pressure}hPa${NC}"
+    echo
+
+    # 3-Day Forecast
+    echo "3-Day Forecast:"
+    printf -- "%s\n" "${BOLD}${WHITE}Day   | Min-Max    | Ic   | Summary${NC}"
+    printf -- "%s\n" "${BLUE}------------------------------------------------------${NC}"
+
+    forecast=$(jq -c '.properties.timeseries | group_by(.time[:10]) | .[0:3]' <<< "$weather_json")
+    echo "$forecast" | jq -c '.[]' | while read -r day; do
+        day_name=$(echo "$day" | jq -r '.[0].time | fromdate | strftime("%a")')
+        temp_min=$(echo "$day" | jq '[.[].data.instant.details.air_temperature] | min')
+        temp_max=$(echo "$day" | jq '[.[].data.instant.details.air_temperature] | max')
+        code=$(echo "$day" | jq -r '.[0].data.next_12_hours.summary.symbol_code // .[0].data.next_6_hours.summary.symbol_code // empty')
+        icon=$(weather_icon "$code")
+        summary=$(echo "$code" | tr _ ' ')
+        [[ -z "$summary" ]] && summary="N/A"
+    # color day icon and highlight high temp
+    day_temp_color=$(color_temp "$temp_max")
+    icon_col=$(weather_color "$code")
+    printf -- "%-6s | %s%-10s${NC} | %b%-4s${NC} | %s\n" "$day_name" "$day_temp_color" "${temp_min}-${temp_max}" "$icon_col" "$icon" "$summary"
+    done
+    echo
+
+    # Hourly Forecast
+    echo "Hourly Forecast (Today):"
+    printf -- "%s\n" "${BOLD}${WHITE}Time  | Temp   | Wind   | Ic   | Precip${NC}"
+    printf -- "%s\n" "${BLUE}------------------------------------------------------${NC}"
+    hourly=$(jq -c '.properties.timeseries[:24]' <<< "$weather_json")
+    echo "$hourly" | jq -c '.[]' | while read -r row; do
+        time=$(echo "$row" | jq -r '.time | fromdate | strftime("%H:%M")')
+        t=$(echo "$row" | jq -r '.data.instant.details.air_temperature')
+        w=$(echo "$row" | jq -r '.data.instant.details.wind_speed')
+        c=$(echo "$row" | jq -r '.data.next_1_hours.summary.symbol_code // ""')
+        p=$(echo "$row" | jq -r '.data.next_1_hours.details.precipitation_amount // 0')
+        ic=$(weather_icon "$c")
+    tcol=$(color_temp "$t")
+    icol=$(weather_color "$c")
+    printf -- "%-6s | %s%-7s${NC} | %-7s | %b%-4s${NC} | %s\n" "$time" "$tcol" "${t}°C" "${w}m/s" "$icol" "$ic" "${p}mm"
+    done
+
+    echo
+    echo -e "${CYAN}==============================${NC}"
+    echo -e " Data powered by ${YELLOW}MET Norway${NC}"
+    echo -e "${CYAN}==============================${NC}"
+}
+
+# Run
+show_weather
