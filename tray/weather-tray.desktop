@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Weather Check Tray
+Comment=Tray widget for weather-check
+Exec=weather-check-tray
+TryExec=weather-check-tray
+Icon=weather-overcast-symbolic
+Terminal=false
+X-GNOME-Autostart-enabled=true
+OnlyShowIn=GNOME;Unity;Pantheon;
+Categories=Utility;Network;

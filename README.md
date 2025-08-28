@@ -113,4 +113,38 @@ Notes:
 - Adjust `CITY`, `THRESHOLD_TEMP`, or `STATE_DIR` via `Environment=` lines in the systemd unit or by editing the script.
 - Verify state file after first run: `ls -l ~/.local/state/weather-check/last_state.json`.
 
+## GNOME tray widget (optional)
+
+Files:
+
+- `tray/weather_tray.py` — AppIndicator-based tray icon that shows current temperature and menu.
+- `tray/weather-check-tray` — small launcher script you can place on PATH.
+- `tray/weather-tray.desktop` — Example autostart entry using `Exec=weather-check-tray`.
+
+Dependencies (Debian/Ubuntu):
+
+```bash
+sudo apt-get install -y python3-gi gir1.2-gtk-3.0 gir1.2-ayatanaappindicator3-0.1
+```
+
+Run:
+
+```bash
+# option A: run directly
+python3 tray/weather_tray.py  # optional: CITY via args or env
+
+# option B: install shim to PATH for portability
+install -Dm755 tray/weather-check-tray ~/.local/bin/weather-check-tray
+weather-check-tray
+```
+
+Autostart:
+
+```bash
+mkdir -p ~/.config/autostart
+cp tray/weather-tray.desktop ~/.config/autostart/
+# edit ~/.config/autostart/weather-tray.desktop to point Exec= to the correct path if needed
+# If you installed the shim to PATH, Exec=weather-check-tray will work as-is.
+```
+
 

@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Launch the tray app from this repo if present, otherwise try module-style
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+PY=${PYTHON:-python3}
+
+if [ -f "$SCRIPT_DIR/weather_tray.py" ]; then
+    exec "$PY" "$SCRIPT_DIR/weather_tray.py" "$@"
+fi
+
+# Fallback: if installed elsewhere, try to locate the python module/script in PATH
+exec "$PY" -m weather_tray "$@" 2>/dev/null || exec "$PY" weather_tray.py "$@"
