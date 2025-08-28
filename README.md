@@ -145,6 +145,24 @@ mkdir -p ~/.config/autostart
 cp tray/weather-tray.desktop ~/.config/autostart/
 # edit ~/.config/autostart/weather-tray.desktop to point Exec= to the correct path if needed
 # If you installed the shim to PATH, Exec=weather-check-tray will work as-is.
+# You can also set env vars in Exec, e.g. a custom city and faster refresh:
+# Exec=env CITY=Pernik WEATHER_TRAY_REFRESH=300 weather-check-tray
+```
+
+Notes:
+
+- On some GNOME setups you may need the “AppIndicator and KStatusNotifierItem Support” extension for tray icons to appear.
+- Environment variables supported by the tray:
+	- `CITY` — default city (falls back to auto-detection if unset)
+	- `WEATHER_TRAY_REFRESH` — refresh interval in seconds (default 600)
+
+System-wide install (optional):
+
+```bash
+sudo install -Dm644 tray/weather_tray.py /usr/local/share/weather-check/weather_tray.py
+sudo install -Dm755 tray/weather-check-tray /usr/local/bin/weather-check-tray
+sudo install -Dm644 tray/weather-tray.desktop /etc/xdg/autostart/weather-tray.desktop
+# Optionally edit /etc/xdg/autostart/weather-tray.desktop to prepend env vars to Exec=
 ```
 
 

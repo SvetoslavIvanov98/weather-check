@@ -1,13 +1,55 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Launch the tray app from this repo if present, otherwise try module-style
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
-PY=${PYTHON:-python3}
+# Portable launcher for the tray app. It looks for weather_tray.py
+# in common install locations or uses an env override.
 
-if [ -f "$SCRIPT_DIR/weather_tray.py" ]; then
-    exec "$PY" "$SCRIPT_DIR/weather_tray.py" "$@"
+PY=${PYTHON:-python3}
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+
+# Candidate locations (first match wins)
+declare -a CANDIDATES=()
+
+# 1) Explicit override via env
+if [ -n "${WEATHER_TRAY_SCRIPT:-}" ]; then
+    CANDIDATES+=("$WEATHER_TRAY_SCRIPT")
 fi
 
-# Fallback: if installed elsewhere, try to locate the python module/script in PATH
-exec "$PY" -m weather_tray "$@" 2>/dev/null || exec "$PY" weather_tray.py "$@"
+# 2) Next to this launcher (useful if not installed to PATH)
+CANDIDATES+=("$SCRIPT_DIR/weather_tray.py")
+
+# 3) XDG data location under the user
+XDG_DATA_HOME_DEFAULT="$HOME/.local/share"
+XDG_DATA_HOME_PATH="${XDG_DATA_HOME:-$XDG_DATA_HOME_DEFAULT}"
+CANDIDATES+=("$XDG_DATA_HOME_PATH/weather-check/weather_tray.py")
+
+# 4) System locations
+CANDIDATES+=("/usr/local/share/weather-check/weather_tray.py")
+CANDIDATES+=("/usr/share/weather-check/weather_tray.py")
+
+for p in "${CANDIDATES[@]}"; do
+    if [ -f "$p" ]; then
+        exec "$PY" "$p" "$@"
+    fi
+done
+
+# Fallback: attempt module execution; otherwise explain how to install
+if "$PY" -m weather_tray "$@" 2>/dev/null; then
+    exit 0
+fi
+
+cat 1>&2 <<'EOF'
+weather-check-tray: could not locate weather_tray.py.
+
+Install it with one of the following:
+    # user install
+    install -Dm644 tray/weather_tray.py "$HOME/.local/share/weather-check/weather_tray.py"
+    install -Dm755 tray/weather-check-tray "$HOME/.local/bin/weather-check-tray"
+
+    # system-wide (root)
+    sudo install -Dm644 tray/weather_tray.py /usr/local/share/weather-check/weather_tray.py
+    sudo install -Dm755 tray/weather-check-tray /usr/local/bin/weather-check-tray
+
+Or set WEATHER_TRAY_SCRIPT to the full path of weather_tray.py and re-run.
+EOF
+exit 1
