@@ -1,0 +1,137 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# weather-alert
+# Periodic script that checks current weather and alerts on changes.
+# Dependencies: curl, jq, notify-send (optional)
+# Configuration via env or arguments:
+#   CITY - city name (optional)
+#   THRESHOLD_TEMP - degrees C change that triggers a temp alert (default 3)
+#   STATE_DIR - directory to store last known state (default /var/lib/weather-check)
+# Usage: weather-alert [City Name]
+
+CITY="${1:-${CITY:-}}"
+THRESHOLD_TEMP="${THRESHOLD_TEMP:-3}"
+# Default to a user-writable state dir if not provided
+STATE_DIR="${STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/weather-check}"
+STATE_FILE="$STATE_DIR/last_state.json"
+TMPFILE="$(mktemp)"
+
+logger_tag="weather-alert"
+
+cleanup() { rm -f "$TMPFILE"; }
+trap cleanup EXIT
+
+# Helpers
+log() { logger -t "$logger_tag" "$*"; }
+notify() {
+    local title="$1"
+    local body="$2"
+    log "$title: $body"
+    # Desktop notification if possible
+    if command -v notify-send >/dev/null 2>&1; then
+        # Try to send to the active session when possible
+        if [ -n "${DISPLAY:-}" ] || [ -n "${XDG_RUNTIME_DIR:-}" ]; then
+            notify-send "$title" "$body"
+        fi
+    fi
+}
+
+# Detect city via IP if not provided
+if [ -z "$CITY" ]; then
+    CITY=$(curl -s --max-time 5 https://ipinfo.io/city || true)
+    CITY=${CITY:-Sofia}
+fi
+
+# Resolve coords (lat lon)
+get_coords() {
+    local city="$1"
+    curl -s --max-time 8 "https://nominatim.openstreetmap.org/search?city=${city}&format=json&limit=1" \
+        | jq -r '.[0] | "\(.lat) \(.lon)"' 2>/dev/null || true
+}
+
+coords=$(get_coords "$CITY")
+if [ -z "$coords" ]; then
+    # fallback to Sofia coords
+    coords="42.6977 23.3219"
+fi
+lat=$(awk '{print $1}' <<<"$coords")
+lon=$(awk '{print $2}' <<<"$coords")
+
+# Fetch current weather
+weather_json=$(curl -s --max-time 10 "https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=${lat}&lon=${lon}" -H "User-Agent: weather-alert" )
+if [ -z "$weather_json" ]; then
+    log "Failed to fetch weather for $CITY"
+    exit 1
+fi
+
+# Extract current values
+current=$(jq -r '.properties.timeseries[0]' <<<"$weather_json")
+cur_temp=$(jq -r '.data.instant.details.air_temperature' <<<"$current")
+cur_precip=$(jq -r '.data.next_1_hours.details.precipitation_amount // 0' <<<"$current")
+cur_symbol=$(jq -r '.data.next_1_hours.summary.symbol_code // .data.next_6_hours.summary.symbol_code // empty' <<<"$current")
+
+# Prepare state dir
+if [ ! -d "$STATE_DIR" ]; then
+    mkdir -p "$STATE_DIR"
+    chmod 755 "$STATE_DIR" || true
+fi
+
+# Read previous state
+prev_temp=""
+prev_precip=""
+prev_symbol=""
+if [ -f "$STATE_FILE" ]; then
+    prev_temp=$(jq -r '.temp // empty' "$STATE_FILE") || prev_temp=""
+    prev_precip=$(jq -r '.precip // empty' "$STATE_FILE") || prev_precip=""
+    prev_symbol=$(jq -r '.symbol // empty' "$STATE_FILE") || prev_symbol=""
+fi
+
+# Normalize numbers
+prev_temp=${prev_temp:-0}
+prev_precip=${prev_precip:-0}
+prev_symbol=${prev_symbol:-}
+
+# Detect changes
+alert_msgs=()
+
+# Temperature change
+# compute absolute diff using awk
+if awk "BEGIN{print ($cur_temp - $prev_temp) < 0 ? -($cur_temp - $prev_temp) : ($cur_temp - $prev_temp)}" | awk -v thr="$THRESHOLD_TEMP" '{exit !($1 >= thr)}'; then
+    alert_msgs+=("Temperature changed: ${prev_temp}°C → ${cur_temp}°C")
+fi
+
+# Precipitation started
+if awk "BEGIN{exit !($prev_precip == 0 && $cur_precip > 0)}"; then
+    alert_msgs+=("Precipitation started: ${cur_precip} mm")
+fi
+
+# Precipitation stopped
+if awk "BEGIN{exit !($prev_precip > 0 && $cur_precip == 0)}"; then
+    alert_msgs+=("Precipitation stopped")
+fi
+
+# Symbol change (summary icon/major condition)
+if [ -n "$prev_symbol" ] && [ "$prev_symbol" != "$cur_symbol" ]; then
+    alert_msgs+=("Weather changed: ${prev_symbol} → ${cur_symbol}")
+fi
+
+# If there was no previous state (first run) we don't alert, just store state
+if [ ! -f "$STATE_FILE" ]; then
+    log "Creating initial state for $CITY: temp=${cur_temp}, precip=${cur_precip}, symbol=${cur_symbol}"
+else
+    if [ ${#alert_msgs[@]} -gt 0 ]; then
+        # Join messages
+        msg="$(printf '%s; ' "${alert_msgs[@]}")"
+        notify "Weather alert for $CITY" "$msg"
+    else
+        log "No relevant changes for $CITY (temp=${cur_temp}, precip=${cur_precip}, symbol=${cur_symbol})"
+    fi
+fi
+
+# Persist state
+jq -n --argjson temp "$cur_temp" --argjson precip "$cur_precip" --arg symbol "$cur_symbol" '{ts: (now|floor), temp: $temp, precip: $precip, symbol: $symbol}' > "$TMPFILE"
+mv "$TMPFILE" "$STATE_FILE"
+chmod 644 "$STATE_FILE" || true
+
+exit 0

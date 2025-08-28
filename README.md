@@ -75,4 +75,42 @@ fakeroot dpkg-deb --build weather-check-1.0 ./weather-check-1.0.deb
 
 - See `weather-check-1.0/usr/share/doc/weather-check/copyright` for packaging metadata.
 
+## Systemd service (alerts)
+
+This repository includes a simple alert script and example systemd user units that trigger notifications when the weather changes.
+
+Files included:
+
+- `scripts/weather-alert` — checks current weather and stores state under `${XDG_STATE_HOME:-~/.local/state}/weather-check` by default; sends a desktop notification via `notify-send` when relevant changes occur.
+- `systemd/user/weather-alert.service` — user service that runs the script.
+- `systemd/user/weather-alert.timer` — timer that runs the service every 10 minutes.
+
+Enable as a user service (recommended):
+
+```bash
+# copy files to a persistent location under your home, or adjust ExecStart in the .service file
+mkdir -p ~/.config/systemd/user
+cp systemd/user/weather-alert.service ~/.config/systemd/user/weather-alert.service
+cp systemd/user/weather-alert.timer ~/.config/systemd/user/weather-alert.timer
+mkdir -p ~/.local/bin
+cp scripts/weather-alert ~/.local/bin/weather-alert
+chmod +x ~/.local/bin/weather-alert
+
+# reload and enable timer
+systemctl --user daemon-reload
+systemctl --user enable --now weather-alert.timer
+
+# Check status
+systemctl --user status weather-alert.timer
+journalctl --user -u weather-alert.service -f
+```
+
+Notes:
+
+- By default, the script stores state in `${XDG_STATE_HOME:-~/.local/state}/weather-check` (user-writable). Override with `Environment=STATE_DIR=/path` in the service if desired.
+- The script uses `notify-send` for desktop notifications; install `libnotify-bin` on Debian/Ubuntu if you want GUI notifications.
+- The unit uses `ExecStart=%h/.local/bin/weather-alert`; systemd does not expand `~` in ExecStart.
+- Adjust `CITY`, `THRESHOLD_TEMP`, or `STATE_DIR` via `Environment=` lines in the systemd unit or by editing the script.
+- Verify state file after first run: `ls -l ~/.local/state/weather-check/last_state.json`.
+
 

@@ -1,0 +1,17 @@
+[Unit]
+Description=Weather Check Alert Service
+After=network-online.target
+
+[Service]
+Type=simple
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=STATE_DIR=%h/.local/state/weather-check
+Environment=THRESHOLD_TEMP=3
+ExecStartPre=/bin/mkdir -p %h/.local/state/weather-check
+ExecStartPre=/bin/chmod 700 %h/.local/state/weather-check
+ExecStart=%h/.local/bin/weather-alert
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=default.target
