@@ -13,3 +13,5 @@
 .vscode/
 __pycache__/
 .venv/
+*.weather-check-1.0.deb
+.gitignore
