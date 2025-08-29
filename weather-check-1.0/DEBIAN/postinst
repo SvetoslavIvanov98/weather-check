@@ -1,8 +1,0 @@
-#!/bin/bash
-set -e
-# Create user config directory if it doesn't exist
-CONFIG_DIR="~/.config/weather-check"
-if [ ! -d "$CONFIG_DIR" ]; then
-    mkdir -p "$CONFIG_DIR"
-fi
-exit 0

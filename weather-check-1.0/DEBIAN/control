@@ -1,6 +1,0 @@
-Package: weather-check
-Version: 1.0
-Architecture: all
-Maintainer: Svetoslav Ivanov svetli5254@gmail.com
-Depends: bash, curl, libnotify-bin, jq, jq
-Description: A simple command-line weather checker.
