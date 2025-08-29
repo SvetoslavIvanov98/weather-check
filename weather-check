@@ -137,7 +137,7 @@ show_weather() {
 
     forecast=$(jq -c '.properties.timeseries | group_by(.time[:10]) | .[0:3]' <<< "$weather_json")
     echo "$forecast" | jq -c '.[]' | while read -r day; do
-        day_name=$(echo "$day" | jq -r '.[0].time | fromdate | strftime("%a")')
+    day_name=$(echo "$day" | jq -r '.[0].time | fromdateiso8601 | strftime("%a")')
         temp_min=$(echo "$day" | jq '[.[].data.instant.details.air_temperature] | min')
         temp_max=$(echo "$day" | jq '[.[].data.instant.details.air_temperature] | max')
         code=$(echo "$day" | jq -r '.[0].data.next_12_hours.summary.symbol_code // .[0].data.next_6_hours.summary.symbol_code // empty')
@@ -151,17 +151,21 @@ show_weather() {
     done
     echo
 
-    # Hourly Forecast
-    echo "Hourly Forecast (Today):"
+    # Hourly Forecast (next 12h)
+    echo "Hourly Forecast (next 12h):"
     printf -- "%s\n" "${BOLD}${WHITE}Time  | Temp   | Wind   | Ic   | Precip${NC}"
     printf -- "%s\n" "${BLUE}------------------------------------------------------${NC}"
-    hourly=$(jq -c '.properties.timeseries[:24]' <<< "$weather_json")
+    hourly=$(jq -c '
+            .properties.timeseries
+            | map(select((.time | fromdateiso8601) >= now))
+            | .[:12]
+        ' <<< "$weather_json")
     echo "$hourly" | jq -c '.[]' | while read -r row; do
-        time=$(echo "$row" | jq -r '.time | fromdate | strftime("%H:%M")')
+    time=$(echo "$row" | jq -r '.time | fromdateiso8601 | strflocaltime("%H:%M")')
         t=$(echo "$row" | jq -r '.data.instant.details.air_temperature')
         w=$(echo "$row" | jq -r '.data.instant.details.wind_speed')
-        c=$(echo "$row" | jq -r '.data.next_1_hours.summary.symbol_code // ""')
-        p=$(echo "$row" | jq -r '.data.next_1_hours.details.precipitation_amount // 0')
+    c=$(echo "$row" | jq -r '.data.next_1_hours.summary.symbol_code // .data.next_6_hours.summary.symbol_code // .data.next_12_hours.summary.symbol_code // ""')
+    p=$(echo "$row" | jq -r '.data.next_1_hours.details.precipitation_amount // .data.next_6_hours.details.precipitation_amount // .data.next_12_hours.details.precipitation_amount // 0')
         ic=$(weather_icon "$c")
     tcol=$(color_temp "$t")
     icol=$(weather_color "$c")

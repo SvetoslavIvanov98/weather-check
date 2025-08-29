@@ -1,0 +1,16 @@
+# Ignore generated Debian packages
+/weather-check-*.deb
+
+# Ignore future versioned package trees (keep 1.0 template tracked)
+/weather-check-[0-9]*/
+!/weather-check-1.0/
+
+# Common local artifacts
+*.log
+*.swp
+*.swo
+*.tmp
+.DS_Store
+.vscode/
+__pycache__/
+.venv/

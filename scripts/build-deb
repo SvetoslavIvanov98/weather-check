@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Build a Debian package from the current repo
+# Usage: scripts/build-deb <version>
+
+if [[ ${1-} == "" ]]; then
+  echo "Usage: $0 <version>" >&2
+  exit 1
+fi
+VER="$1"
+PKG_NAME="weather-check"
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+TEMPLATE_DIR="$ROOT_DIR/weather-check-1.0"
+STAGE_DIR="$ROOT_DIR/${PKG_NAME}-${VER}"
+
+if [[ ! -d "$TEMPLATE_DIR/DEBIAN" ]]; then
+  echo "Template package tree not found: $TEMPLATE_DIR" >&2
+  exit 2
+fi
+
+rm -rf "$STAGE_DIR"
+mkdir -p "$STAGE_DIR"
+
+# Copy template tree
+cp -a "$TEMPLATE_DIR"/. "$STAGE_DIR"/
+
+# Ensure DEBIAN/* perms
+chmod 0755 "$STAGE_DIR/DEBIAN"
+
+# Update control version and clean duplicate deps
+CONTROL="$STAGE_DIR/DEBIAN/control"
+sed -i -E "s/^Version:.*/Version: ${VER}/" "$CONTROL"
+sed -i -E 's/Depends: *([^,]*,\s*)?jq,\s*jq/Depends: bash, curl, libnotify-bin, jq/' "$CONTROL"
+
+# Fix postinst HOME path and perms
+POSTINST="$STAGE_DIR/DEBIAN/postinst"
+if [[ -f "$POSTINST" ]]; then
+  sed -i -E 's|CONFIG_DIR="?~/.config/weather-check"?|CONFIG_DIR="$HOME/.config/weather-check"|' "$POSTINST"
+  chmod 0755 "$POSTINST"
+fi
+
+# Copy current CLI into /usr/bin
+install -Dm0755 "$ROOT_DIR/weather-check" "$STAGE_DIR/usr/bin/weather-check"
+
+# Update changelog
+DOC_DIR="$STAGE_DIR/usr/share/doc/${PKG_NAME}"
+mkdir -p "$DOC_DIR"
+CHANGELOG="$DOC_DIR/changelog"
+DATE_STR="$(date -R)"
+{
+  echo "${PKG_NAME} (${VER}) stable; urgency=medium"
+  echo
+  echo "  * Automated build from repo at $(date -Is)."
+  echo
+  echo " -- ${USER:-builder} <${EMAIL:-builder@example.com}>  ${DATE_STR}"
+  echo
+  [[ -f "$CHANGELOG" ]] && cat "$CHANGELOG" || true
+} >"$CHANGELOG.new"
+mv "$CHANGELOG.new" "$CHANGELOG"
+# gzip -9n changelog (keep original too)
+gzip -f9n -c "$CHANGELOG" > "$DOC_DIR/changelog.gz"
+
+# Ensure directory/file perms sane
+find "$STAGE_DIR" -type d -exec chmod 0755 {} +
+# control should be 0644
+chmod 0644 "$STAGE_DIR/DEBIAN/control"
+
+# Build .deb
+OUT_DEB="$ROOT_DIR/${PKG_NAME}-${VER}.deb"
+rm -f "$OUT_DEB"
+fakeroot dpkg-deb --build "$STAGE_DIR" "$OUT_DEB"
+
+echo "Built: $OUT_DEB"
