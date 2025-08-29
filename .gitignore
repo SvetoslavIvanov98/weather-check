@@ -1,9 +1,8 @@
 # Ignore generated Debian packages
 /weather-check-*.deb
 
-# Ignore future versioned package trees (keep 1.0 template tracked)
+# Ignore ALL versioned package trees (including 1.0)
 /weather-check-[0-9]*/
-!/weather-check-1.0/
 
 # Common local artifacts
 *.log
